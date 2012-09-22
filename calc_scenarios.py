@@ -9,6 +9,7 @@ import xija
 
 
 PITCH_BINS = (45, 70, 100, 135, 170)
+obsids = None
 
 
 def C2F(val):
@@ -19,7 +20,61 @@ def F2C(val):
     return (val - 32) / 1.8
 
 
+def make_obsids_file(filename='obsids.npy'):
+    from Chandra.cmd_states import fetch_states
+    from Ska.Numpy import structured_array
+    dat = fetch_states('2008:001', vals=['pitch', 'obsid'])
+    dur = dat['tstop'] - dat['tstart']
+    ok = dur > 3000
+    dat = dat[ok]
+    dur = dur[ok]
+    newd = structured_array({'pitch': dat['pitch'],
+                             'obsid': dat['obsid'],
+                             'dur': dur})
+    np.save(open(filename, 'w'), newd)
+
+
 def get_pitches(n_times, pitch_pdf):
+    global obsids
+    if obsids is None:
+        print 'Loading obsids.npy'
+        obsids = np.load('obsids.npy')
+    dt = 328.0  # fixed time per bin
+    pitch_pdf = np.asarray(pitch_pdf, dtype=np.float64)
+    pitch_times = pitch_pdf / np.sum(pitch_pdf) * n_times * dt
+    obs_pitches = []
+    obs_durs = []
+    for p0, p1, pitch_time in zip(PITCH_BINS[:-1], PITCH_BINS[1:],
+                                  pitch_times):
+        if pitch_time < 1:
+            continue
+        ok = (obsids['pitch'] > p0) & (obsids['pitch'] < p1)
+        obss = obsids[ok]
+        cumtime = 0.0
+        while cumtime < pitch_time:
+            i = np.random.randint(len(obss))
+            dur = obss[i]['dur']
+            obs_durs.append(dur)
+            cumtime += dur
+            obs_pitches.append(obss[i]['pitch'])
+
+        # Fix the overrun
+        obs_durs[-1] -= cumtime - pitch_time
+
+    i_shuffle = np.arange(len(obs_durs))
+    np.random.shuffle(i_shuffle)
+    obs_pitches = np.array(obs_pitches)[i_shuffle]
+    obs_durs = np.hstack([0, np.array(obs_durs)[i_shuffle]])
+    obs_times = np.cumsum(obs_durs)
+    pitches = np.zeros(n_times, dtype=np.float) - 90.0
+    times = np.arange(n_times) * dt
+    for t0, t1, pitch in zip(obs_times[:-1], obs_times[1:], obs_pitches):
+        ok = (times >= t0) & (times <= t1)
+        pitches[ok] = pitch
+    return pitches
+
+
+def get_pitches_simple(n_times, pitch_pdf):
     pitch_pdf = np.asarray(pitch_pdf, dtype=np.float64)
     pitch_pdf = np.cumsum(pitch_pdf) / np.sum(pitch_pdf)
     obs_bins = range(0, n_times, 30) + [n_times]
@@ -33,7 +88,7 @@ def get_pitches(n_times, pitch_pdf):
     return pitches
 
 
-def calc_model(pitch_pdf=[1, 2, 3, 4], tank_start=75):
+def calc_model(pitch_pdf=[1, 2, 3, 4], tank_start=None):
     tank_start = F2C(tank_start)  # convert to degC
     model = xija.ThermalModel('pftank2t', '2013:001', '2013:008',
                               model_spec='pftank2t_spec.json')
@@ -57,7 +112,6 @@ def get_args(args):
     parser = argparse.ArgumentParser(description='Calculate tank scenarios')
     parser.add_argument('--tank-start',
                         type=int,
-                        default=75,
                         help='Starting pftank2t temperature')
     parser.add_argument('--n-sim', type=int,
                         default=5000000,
@@ -88,7 +142,7 @@ def main(args=None):
         p2 = hot * args.frac_mid
         p3 = cold
 
-        model = calc_model([p0, p1, p2, p3], F2C(args.tank_start))
+        model = calc_model([p0, p1, p2, p3], args.tank_start)
         t_vals = model.comp['pftank2t'].mvals
         t_max = C2F(np.max(t_vals))
         t_end = C2F(t_vals[-1])
