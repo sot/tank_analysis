@@ -1,6 +1,5 @@
 import os
 import socket
-import sys
 
 import numpy as np
 from itertools import izip
@@ -20,21 +19,29 @@ def F2C(val):
     return (val - 32) / 1.8
 
 
-def make_obsids_file(filename='obsids.npy'):
+def make_obsids_file(filename='obsids.npy', min_dur=3000, start='2008:001'):
+    """
+    Make a numpy save file with all obsids longer than ``min_dur`` since
+    ``start``.
+    """
     from Chandra.cmd_states import fetch_states
     from Ska.Numpy import structured_array
-    dat = fetch_states('2008:001', vals=['pitch', 'obsid'])
+    dat = fetch_states(start, vals=['pitch', 'obsid'])
     dur = dat['tstop'] - dat['tstart']
-    ok = dur > 3000
+    ok = dur > min_dur
     dat = dat[ok]
     dur = dur[ok]
-    newd = structured_array({'pitch': dat['pitch'],
-                             'obsid': dat['obsid'],
-                             'dur': dur})
-    np.save(open(filename, 'w'), newd)
+    newdat = structured_array({'pitch': dat['pitch'],
+                               'obsid': dat['obsid'],
+                               'dur': dur})
+    np.save(open(filename, 'w'), newdat)
 
 
 def get_pitches(n_times, pitch_pdf):
+    """
+    Get a simulated set of pitch values for a duration of ``n_times * 328.0``
+    seconds.  Draw from real mission obsids pitch / duration values.
+    """
     global obsids
     if obsids is None:
         print 'Loading obsids.npy'
@@ -75,6 +82,10 @@ def get_pitches(n_times, pitch_pdf):
 
 
 def get_pitches_simple(n_times, pitch_pdf):
+    """
+    Original simple version of get_pitches that just assumes every
+    observation is 10 ksec and places them randomly.
+    """
     pitch_pdf = np.asarray(pitch_pdf, dtype=np.float64)
     pitch_pdf = np.cumsum(pitch_pdf) / np.sum(pitch_pdf)
     obs_bins = range(0, n_times, 30) + [n_times]
@@ -89,6 +100,12 @@ def get_pitches_simple(n_times, pitch_pdf):
 
 
 def calc_model(pitch_pdf=[1, 2, 3, 4], tank_start=None):
+    """
+    Calculate tank model for a simulated set of observations that follow
+    the specified pitch probability density function ``pitch_pdf``.  This
+    argument corresponds to the fraction of observations in the
+    four PITCH_BINS.  This will be normalized to one by the function.
+    """
     tank_start = F2C(tank_start)  # convert to degC
     model = xija.ThermalModel('pftank2t', '2013:001', '2013:008',
                               model_spec='pftank2t_spec.json')
@@ -114,7 +131,7 @@ def get_args(args):
                         type=int,
                         help='Starting pftank2t temperature')
     parser.add_argument('--n-sim', type=int,
-                        default=5000000,
+                        default=100000,
                         help='Max number of simulations')
     parser.add_argument('--frac-mid', type=int,
                         default=0.2,

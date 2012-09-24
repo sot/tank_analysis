@@ -56,18 +56,24 @@ def main(args=None):
                 t_50[i, j], t_90[i, j] = np.percentile(t_ends_ok, [50, 90])
             t_maxes_ok = t_maxes[ok]
             if len(t_maxes_ok) > 0:
-                frac_bad[i, j] = np.sum(t_maxes_ok > tank_limit) / len(t_maxes_ok)
+                n_bad = np.sum(t_maxes_ok > tank_limit)
+                frac_bad[i, j] = n_bad / len(t_maxes_ok)
 
     x = (bins[1:] + bins[:-1]) / 2.0
     y = x.copy()
-    for t, pref in ((t_50, 'Median'),
-                     (t_90, '90%')):
-        title = '{} T(1 week) for start {} F'.format(
+    for perc, t, pref in ((50, t_50, 'Median'),
+                          (90, t_90, '90%')):
+        title = '{} temp after 7 days, start={} F'.format(
             pref, args.tank_start)
-        plot_t_img_contour(x, y, t, title)
+        plot_t_img_contour(x, y, t, title, 'tank_perc{}_start{}.png'.format(
+                perc, args.tank_start))
+
+    title = 'Fraction exceeding 93F limit, start={}'.format(args.tank_start)
+    filename = 'tank_bad_start{}.png'.format(args.tank_start)
+    plot_frac_bad(x, y, frac_bad, title, filename)
 
 
-def plot_t_img_contour(x, y, z, title):
+def plot_t_img_contour(x, y, z, title, filename=None):
     X, Y = np.meshgrid(x, y)
     plt.figure()
     plt.clf()
@@ -83,13 +89,34 @@ def plot_t_img_contour(x, y, z, title):
     plt.xlabel('Hot fraction')
     plt.ylabel('Cold fraction')
     plt.title(title)
+    if filename:
+        plt.savefig(filename)
 
 
-def plot_frac_bad(frac_bad):
+def plot_frac_bad(x, y, z, title, filename=None):
+    X, Y = np.meshgrid(x, y)
     plt.figure(2)
     plt.clf()
-    plt.imshow(frac_bad, origin='lower', vmin=0.0, vmax=1.0,
-               extent=[0, 1, 0, 1])
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+
+    CS = plt.contour(X, Y, z, [0.01, 0.1, 0.5, 0.9, 0.99],
+                     colors=('k', 'b', 'c', 'm', 'r'))
+    plt.clabel(CS, inline=1, fontsize=10, fmt='%.2f')
+
+    for v in (0.2, 0.4, 0.6, 0.8, 1.0):
+        plt.plot([0., v], [v, 0], '--k', alpha=0.5)
+        plt.text(v / 2, v / 2, 'W={}'.format(1 - v),
+                 ha='left', va='bottom', alpha=1, size=10)
+
+    plt.xlabel('Hot fraction')
+    plt.ylabel('Cold fraction')
+    plt.title(title)
+
+    plt.grid()
+
+    if filename:
+        plt.savefig(filename)
 
 if __name__ == '__main__':
     main()
