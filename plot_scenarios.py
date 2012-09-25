@@ -4,6 +4,7 @@ from glob import glob
 import matplotlib.pyplot as plt
 import numpy as np
 
+import Ska.Numpy
 import asciitable
 
 
@@ -13,6 +14,9 @@ def get_args(args=None):
     parser.add_argument('--tank-start',
                         type=int,
                         help='Starting pftank2t temperature')
+    parser.add_argument('--no-save',
+                        action='store_true',
+                        help='Do not save plots')
 
     args = parser.parse_args(args)
     return args
@@ -65,12 +69,20 @@ def main(args=None):
                           (90, t_90, '90%')):
         title = '{} temp after 7 days, start={} F'.format(
             pref, args.tank_start)
-        plot_t_img_contour(x, y, t, title, 'tank_perc{}_start{}.png'.format(
-                perc, args.tank_start))
+        filename = None if args.no_save else 'tank_perc{}_start{}.png'.format(
+            perc, args.tank_start)
+        plot_t_img_contour(x, y, t, title, filename)
 
     title = 'Fraction exceeding 93F limit, start={}'.format(args.tank_start)
-    filename = 'tank_bad_start{}.png'.format(args.tank_start)
+    filename = None if args.no_save else 'tank_bad_start{}.png'.format(
+        args.tank_start)
     plot_frac_bad(x, y, frac_bad, title, filename)
+
+    title = 'blah start={}'.format(args.tank_start)
+    filename = None if args.no_save else 'tank_end_10_start{}.png'.format(
+        args.tank_start)
+    plot_t_50_at_frac_bad_10(args.tank_start, x, y, t_50,
+                             title, filename=None)
 
 
 def plot_t_img_contour(x, y, z, title, filename=None):
@@ -117,6 +129,51 @@ def plot_frac_bad(x, y, z, title, filename=None):
 
     if filename:
         plt.savefig(filename)
+
+
+def plot_t_50_at_frac_bad_10(tank_start, x, y, t_50, title, filename=None):
+    """
+    Plot the value of ending temperature (roughly) along the 0.10 contour
+    in the frac_bad plot.  The data values are actually taken along a line
+    that was eyeballed from the plots.
+
+    This routine plots a line corresponding to a single starting temperature.
+    To make the plot with all four starting temps you need to run the
+    whole program four times::
+
+      run plot_scenarios.py --tank-start 75 --no-save
+      run plot_scenarios.py --tank-start 80 --no-save
+      run plot_scenarios.py --tank-start 85 --no-save
+      run plot_scenarios.py --tank-start 90 --no-save
+    """
+    points = {75: [(0.1, 0), (0.6, 0.3)],
+              80: [(0.03, 0), (0.6, 0.34)],
+              85: [(0.0, 0.05), (0.52, 0.4)],
+              90: [(0.0, 0.13), (0.4, 0.51)],
+              }
+    points = points[tank_start]
+    xs = [points[0][0], points[1][0]]
+    ys = [points[0][1], points[1][1]]
+    r = np.polyfit(xs, ys, 1)
+    hot = x.copy()
+    cold = np.polyval(r, hot)
+    warm = 1 - hot - cold
+    ok = warm > 0.0
+    cold = cold[ok]
+    hot = hot[ok]
+    t_50_10 = []
+    for j in range(len(hot)):
+        t_50_10.append(Ska.Numpy.interpolate(t_50[:, j], y, [cold[j]],
+                                             method='linear')[0])
+
+    plt.figure(10)
+    plt.xlim(0, 1)
+    plt.plot(hot, t_50_10)
+
+    plt.xlabel('Hot fraction')
+    plt.ylabel('Median temp after 7 days (F)')
+    plt.title('Start=75 blue, 80 green, 85 red, 90 cyan')
+
 
 if __name__ == '__main__':
     main()
